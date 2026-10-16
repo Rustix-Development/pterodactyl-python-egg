@@ -121,6 +121,7 @@ The server console also controls the bots. Type `help` for the list:
 | Bot Panel Password (`PANEL_PASSWORD`) | | Web panel password; blank generates one |
 | Bots Folder (`BOTS_DIR`) | | Folder holding the bot folders; blank is the server's main folder |
 | Auto Restart Bots (`AUTO_RESTART`) | `1` | Restart crashed bots with backoff |
+| Bot Logs In Main Console (`CONSOLE_MIRROR`) | `0` | Also show every bot's output in the main console, not only in its own log in the panel |
 | Update Check (`UPDATE_CHECK`) | `1` | Say in the console when the egg or the Docker image has an update |
 
 ### Git
