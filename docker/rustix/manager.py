@@ -44,7 +44,7 @@ STATE_DIR = HOME / ".rustix"
 LOG_DIR = HOME / "logs"
 ENTRIES = os.environ.get("BOT_ENTRIES", "bot.py main.py app.py").split()
 AUTO_RESTART = env_on("AUTO_RESTART")
-MIRROR = env_on("CONSOLE_MIRROR")
+MIRROR = env_on("CONSOLE_MIRROR", "0")  # bot output in the main console too, not just the panel
 PORT = int(os.environ.get("SERVER_PORT") or os.environ.get("PORT") or 8080)
 EXCLUDED = {"logs", "__pycache__", "node_modules", "venv", "env", "backup-dont-touch"}
 # Never hand these to bot processes: panel/git secrets and egg plumbing.
