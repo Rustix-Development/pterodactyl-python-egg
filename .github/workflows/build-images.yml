@@ -42,7 +42,7 @@ jobs:
 
       # The build time goes into the image and onto the published tag, start.sh compares
       # the two to tell a server its image is outdated
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: ./docker
           platforms: linux/amd64,linux/arm64
