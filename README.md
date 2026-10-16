@@ -104,7 +104,7 @@ The server console also controls the bots. Type `help` for the list:
 | `reinstall <bot>` | Force a fresh dependency install |
 | `logs <bot> [lines]` | Print a bot's recent output |
 | `rescan` | Look for new bot folders now |
-| `password` | Show the web panel password |
+| `password` | Show the generated web panel password |
 
 ## Variables
 
