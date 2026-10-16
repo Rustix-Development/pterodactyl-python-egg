@@ -1,0 +1,81 @@
+name: Release egg
+
+# Publishes egg-python.json as a GitHub release named after the EGG_VERSION in its
+# install script (e.g. v1.0.0). Bump EGG_VERSION to make a new release.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "egg-python.json"
+  workflow_dispatch:
+    inputs:
+      republish:
+        description: "Replace the egg in this version's existing release without bumping EGG_VERSION"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# Never let two runs create the same release at once
+concurrency:
+  group: release-egg
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Read EGG_VERSION
+        id: egg
+        run: |
+          # tr: the panel saves the install script with Windows line endings
+          version=$(jq -r '.scripts.installation.script' egg-python.json \
+            | tr -d '\r' \
+            | sed -n 's/^EGG_VERSION="\([^"]*\)"$/\1/p' | head -n 1)
+          if [ -z "${version}" ]; then
+            echo "::error::EGG_VERSION not found in the egg's install script"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Create the release if this version doesn't have one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ steps.egg.outputs.version }}
+          REPUBLISH: ${{ inputs.republish }}
+        run: |
+          if [ "$(gh release view "${TAG}" --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]; then
+            gh release download "${TAG}" --pattern egg-python.json --output "${RUNNER_TEMP}/released.json"
+            if cmp -s egg-python.json "${RUNNER_TEMP}/released.json"; then
+              echo "Release ${TAG} already exists with this egg, nothing to do."
+              exit 0
+            fi
+            if [ "${REPUBLISH}" = "true" ]; then
+              # Run by hand with "republish": swap the egg in the existing release. The tag
+              # stays where it is, release tags are protected and can't be moved
+              gh release upload "${TAG}" egg-python.json --clobber
+              echo "Replaced egg-python.json in release ${TAG}."
+              exit 0
+            fi
+            echo "::error::egg-python.json changed but EGG_VERSION is still ${TAG#v}. Bump EGG_VERSION, or run this workflow by hand with \"republish\" ticked to replace the egg in ${TAG}."
+            exit 1
+          fi
+          cat > notes.md <<'EOF'
+          ## Install
+
+          1. Download `egg-python.json` below.
+          2. In the panel: **Admin → Nests → Import Egg**, upload it.
+          3. Create a server with the egg, pick a Python version (Docker Image), and upload your bot.
+
+          ## Update from an older version
+
+          **Admin → Nests → (nest) → Python → Update Egg** with this file (not Import Egg, that makes a second copy), then **Reinstall** your servers.
+          Reinstalling keeps your files. The start script and bot manager live in the Docker image, so restarting a server picks up their updates.
+          EOF
+          gh release create "${TAG}" egg-python.json \
+            --title "${TAG}" \
+            --notes-file notes.md \
+            --target "${GITHUB_SHA}"

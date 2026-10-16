@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in the egg or its Docker images doesn't work as described.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Egg version
+      description: Shown in the server console at startup, or the release you downloaded.
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: python
+    attributes:
+      label: Python version (Docker image)
+      options:
+        - "3.15"
+        - "3.14"
+        - "3.13"
+        - "3.12"
+        - "3.11"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - Single app
+        - Multi-Bot Mode
+    validations:
+      required: true
+  - type: input
+    id: panel
+    attributes:
+      label: Panel version
+      placeholder: 1.11.11
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Anything relevant from the server console, the install log or the files in logs/. Remove tokens and passwords first.
+      render: text

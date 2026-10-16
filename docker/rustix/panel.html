@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rustix Bots</title>
+<style>
+  :root { --bg:#0d0f13; --card:#161920; --line:#252a34; --text:#e8e8ea; --muted:#9097a3; --accent:#f26b1d;
+          --ok:#3ddc84; --warn:#f5a524; --bad:#e5484d; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+           padding:16px 20px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:2; }
+  .brand { font-weight:700; font-size:17px; letter-spacing:.3px; }
+  .brand b { color:var(--accent); }
+  .sub { color:var(--muted); font-size:12px; }
+  main { max-width:1100px; margin:0 auto; padding:20px 16px; }
+  button { background:#20242d; color:var(--text); border:1px solid #333a47; padding:6px 12px; border-radius:7px;
+           cursor:pointer; font:inherit; font-size:13px; }
+  button:hover { border-color:var(--accent); }
+  button.danger:hover { border-color:var(--bad); background:#2a1517; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#111; font-weight:600; }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input { background:#0b0d11; color:var(--text); border:1px solid #333a47; border-radius:7px; padding:8px 10px; font:inherit; }
+  .grid { display:grid; gap:12px; }
+  .bot { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .name { font-weight:600; font-size:15px; display:flex; align-items:center; gap:8px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:#666; flex:none; }
+  .running .dot { background:var(--ok); box-shadow:0 0 8px var(--ok); }
+  .installing .dot, .backoff .dot { background:var(--warn); }
+  .crashed .dot { background:var(--bad); }
+  .meta { color:var(--muted); font-size:12px; margin-top:3px; }
+  .tag { font-size:11px; padding:1px 7px; border-radius:99px; border:1px solid var(--line); color:var(--muted); font-weight:400; }
+  pre { background:#090b0e; border:1px solid var(--line); border-radius:8px; padding:10px; margin:12px 0 0; height:260px;
+        overflow:auto; font:12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space:pre-wrap; word-break:break-word; }
+  .hidden { display:none !important; }
+  #login { min-height:100vh; display:flex; align-items:center; justify-content:center; }
+  #login form { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:28px; width:min(340px, 92vw); display:grid; gap:12px; }
+  .err { color:var(--bad); font-size:13px; min-height:1em; }
+  .empty { color:var(--muted); padding:40px; text-align:center; border:1px dashed var(--line); border-radius:12px; }
+</style>
+</head>
+<body>
+<div id="login" class="hidden">
+  <form onsubmit="doLogin(event)">
+    <div class="brand"><b>Rustix</b> Bots</div>
+    <input id="pw" type="password" placeholder="Panel password" autocomplete="current-password" autofocus>
+    <div class="err" id="err"></div>
+    <button class="primary">Log in</button>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <div>
+      <div class="brand"><b>Rustix</b> Bots</div>
+      <div class="sub" id="summary"></div>
+    </div>
+    <div class="bar">
+      <button onclick="all('start')">Start all</button>
+      <button onclick="all('restart')">Restart all</button>
+      <button class="danger" onclick="all('stop')">Stop all</button>
+      <button onclick="post('/api/rescan')">Rescan</button>
+      <button onclick="logout()">Log out</button>
+    </div>
+  </header>
+  <main><div class="grid" id="bots"></div></main>
+</div>
+
+<script>
+let csrf = null;
+const open = new Set(), seqs = {}, cards = {};
+
+const fmtMem = b => b > 1073741824 ? (b / 1073741824).toFixed(2) + " GB" : Math.round(b / 1048576) + " MB";
+const fmtUp = s => { const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h ? `${h}h ${m}m` : m ? `${m}m ${s % 60}s` : `${s}s`; };
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", "X-CSRF": csrf || "", ...(opts.headers || {}) } });
+  if (res.status === 401) { show(false); throw new Error("auth"); }
+  return res;
+}
+const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body || {}) }).then(refresh);
+const act = (id, a) => post(`/api/bots/${encodeURIComponent(id)}/${a}`);
+const all = a => (a !== "stop" || confirm("Stop every bot?")) && post(`/api/all/${a}`);
+
+function show(authed) {
+  document.getElementById("login").classList.toggle("hidden", authed);
+  document.getElementById("app").classList.toggle("hidden", !authed);
+}
+
+async function doLogin(e) {
+  e.preventDefault();
+  const res = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: document.getElementById("pw").value }) });
+  if (res.ok) { show(true); refresh(); }
+  else document.getElementById("err").textContent = (await res.json().catch(() => ({}))).error || "Login failed";
+}
+async function logout() { await post("/api/logout"); show(false); }
+
+function card(b) {
+  const el = document.createElement("div");
+  el.className = "bot";
+  el.innerHTML = `
+    <div class="row">
+      <div>
+        <div class="name"><span class="dot"></span><span class="n"></span><span class="tag auto">auto-start off</span></div>
+        <div class="meta"></div>
+      </div>
+      <div class="bar">
+        <button data-a="start">Start</button><button data-a="restart">Restart</button>
+        <button data-a="stop" class="danger">Stop</button><button data-a="logs">Logs</button>
+        <button data-a="more">⋯</button>
+      </div>
+    </div>
+    <div class="bar extra hidden" style="margin-top:10px">
+      <button data-a="toggle"></button><button data-a="reinstall">Reinstall dependencies</button>
+    </div>
+    <pre class="hidden"></pre>`;
+  el.querySelector(".n").textContent = b.name;
+  el.addEventListener("click", ev => {
+    const a = ev.target.dataset && ev.target.dataset.a;
+    if (!a) return;
+    const pre = el.querySelector("pre");
+    if (a === "logs") { pre.classList.toggle("hidden"); open.has(b.id) ? open.delete(b.id) : (open.add(b.id), pullLogs(b.id)); }
+    else if (a === "more") el.querySelector(".extra").classList.toggle("hidden");
+    else if (a === "toggle") act(b.id, el._auto ? "disable" : "enable");
+    else act(b.id, a);
+  });
+  return el;
+}
+
+async function pullLogs(id) {
+  const el = cards[id]; if (!el) return;
+  const pre = el.querySelector("pre");
+  const res = await api(`/api/bots/${encodeURIComponent(id)}/logs?after=${seqs[id] || 0}`);
+  if (!res.ok) return;
+  const d = await res.json();
+  if (!d.lines.length) return;
+  const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 8;
+  pre.textContent += d.lines.map(l => l.t).join("\n") + "\n";
+  if (pre.textContent.length > 200000) pre.textContent = pre.textContent.slice(-150000);
+  seqs[id] = d.lines[d.lines.length - 1].n;
+  if (atBottom) pre.scrollTop = pre.scrollHeight;
+}
+
+async function refresh() {
+  let d;
+  try { const res = await api("/api/state"); if (!res.ok) return; d = await res.json(); } catch { return; }
+  show(true);
+  csrf = d.csrf;
+  const list = document.getElementById("bots");
+  const running = d.bots.filter(b => b.state === "running");
+  const used = d.manager_mem + d.bots.reduce((s, b) => s + b.mem, 0);
+  document.getElementById("summary").textContent =
+    `Python ${d.python} · ${running.length}/${d.bots.length} running · ${fmtMem(used)}${d.mem_limit ? " of " + fmtMem(d.mem_limit) : ""}`;
+  if (!d.bots.length) list.innerHTML = `<div class="empty">No bots yet. Create a folder with a bot.py inside it, then hit Rescan.</div>`;
+  else list.querySelector(".empty")?.remove();
+  for (const id of Object.keys(cards)) if (!d.bots.find(b => b.id === id)) { cards[id].remove(); delete cards[id]; }
+  for (const b of d.bots) {
+    const el = cards[b.id] || (cards[b.id] = list.appendChild(card(b)));
+    el.className = "bot " + b.state;
+    el._auto = b.autostart;
+    el.querySelector(".auto").classList.toggle("hidden", b.autostart);
+    el.querySelector("[data-a=toggle]").textContent = b.autostart ? "Disable auto-start" : "Enable auto-start";
+    let meta = b.state;
+    if (b.state === "running") meta += ` · up ${fmtUp(b.uptime)} · ${b.cpu}% CPU · ${fmtMem(b.mem)}`;
+    if (b.state === "backoff") meta = `crashed (exit ${b.last_exit}) · retrying in ${b.retry_in}s`;
+    if (b.restarts) meta += ` · ${b.restarts} restart${b.restarts > 1 ? "s" : ""}`;
+    if (!b.entry) meta += " · no bot.py/main.py found";
+    el.querySelector(".meta").textContent = meta;
+    if (open.has(b.id) && b.seq !== seqs[b.id]) pullLogs(b.id);
+  }
+}
+
+refresh().catch(() => {});
+setInterval(() => { if (!document.hidden && csrf) refresh(); }, 2000);
+</script>
+</body>
+</html>

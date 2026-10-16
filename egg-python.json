@@ -1,0 +1,196 @@
+{
+    "_comment": "DO NOT EDIT: FILE GENERATED AUTOMATICALLY BY PTERODACTYL PANEL - PTERODACTYL.IO",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": "https://raw.githubusercontent.com/Rustix-Development/pterodactyl-python-egg/HEAD/egg-python.json"
+    },
+    "exported_at": "2026-10-16T22:00:00+00:00",
+    "name": "Python",
+    "author": "mohamed@beyd.ca",
+    "description": "Run Python apps and Discord bots, on Python 3.11 to 3.15.\n\n- Dependencies: requirements.txt is installed with uv into a venv, and skipped on restarts when nothing changed\n- Git: clone your bot from a Git repo, optionally pulling updates on every start\n- Multi-Bot Mode (set by an admin): host many bots on one server, each in its own folder with its own packages and .env, managed from a web panel on the server's port\n\nBy Rustix (rustix.xyz).",
+    "features": [],
+    "docker_images": {
+        "Python 3.13": "ghcr.io/rustix-development/pterodactyl-python-egg:python3.13",
+        "Python 3.14": "ghcr.io/rustix-development/pterodactyl-python-egg:python3.14",
+        "Python 3.15": "ghcr.io/rustix-development/pterodactyl-python-egg:python3.15",
+        "Python 3.12": "ghcr.io/rustix-development/pterodactyl-python-egg:python3.12",
+        "Python 3.11": "ghcr.io/rustix-development/pterodactyl-python-egg:python3.11"
+    },
+    "file_denylist": [],
+    "startup": "rustix-start",
+    "config": {
+        "files": "{}",
+        "startup": "{\n    \"done\": \"Launching \",\n    \"userInteraction\": []\n}",
+        "logs": "{\n    \"custom\": false,\n    \"location\": \"logs/latest.log\"\n}",
+        "stop": "^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/ash\n# Rustix Python installer: sets up the server's files (Git clone, or a starter bot folder).\n\n# Bump this whenever the egg changes. Servers compare it with the egg on GitHub at\n# startup and show an update notice in the console.\nEGG_VERSION=\"1.0.0\"\n\nis_true() { [ \"$1\" = \"1\" ] || [ \"$1\" = \"true\" ]; }\n\n# Drop user:token@ from a git URL so a changed token still counts as the same repo\nstrip_auth() { printf '%s' \"$1\" | sed -E 's#^([a-z]+://)[^/@]*@#\\1#'; }\n\n# The install container has a terminal nobody types into: never wait for a git password\nexport GIT_TERMINAL_PROMPT=0\n\ncd /mnt/server || exit 1\napk add --no-cache git || { echo \"Failed to install git\"; exit 1; }\n# Server files belong to the server user, not root; let git work on them anyway\ngit config --global --add safe.directory '*'\n\n# Anything here besides what the egg itself creates?\nhas_files() {\n    [ -n \"$(find . -mindepth 1 -maxdepth 1 ! -name .egg-version ! -name logs ! -name .cache ! -name .venv ! -name .rustix | head -n 1)\" ]\n}\n\nfinish() {\n    mkdir -p /mnt/server/logs\n    echo \"${EGG_VERSION}\" > /mnt/server/.egg-version\n    echo \"$1\"\n    exit 0\n}\n\n# Starter bot for multi-bot mode, so the panel has something to show. Auto-start is off.\nseed_example_bot() {\n    has_files && return\n    mkdir -p example-bot\n    cat > example-bot/bot.py <<'PY'\n# Example bot: copy this folder for each bot you host. The panel runs every folder\n# that has a bot.py (or main.py / app.py) in it, each with its own packages and .env.\nimport os\nimport time\n\nprint(f\"example-bot running, DISCORD_TOKEN set: {bool(os.getenv('DISCORD_TOKEN'))}\")\nwhile True:\n    time.sleep(60)\nPY\n    printf '# discord.py>=2.6\\n' > example-bot/requirements.txt\n    printf '# Each bot reads its own .env\\nDISCORD_TOKEN=\\n' > example-bot/.env\n    touch example-bot/.disabled\n    echo \"Added example-bot/ (auto-start off). Copy it for each bot you want to host.\"\n}\n\nif is_true \"${USER_UPLOAD}\"; then\n    is_true \"${MULTI_BOT}\" && seed_example_bot\n    finish \"User Uploaded Files is on, skipping Git setup. Upload your files.\"\nfi\n\nif [ -z \"${GIT_ADDRESS}\" ]; then\n    is_true \"${MULTI_BOT}\" && seed_example_bot\n    if is_true \"${MULTI_BOT}\"; then\n        finish \"Install complete. Put each bot in its own folder, then open the web panel on this server's address.\"\n    fi\n    finish \"Install complete. Upload your bot (${PY_FILE:-bot.py}) and its requirements.txt.\"\nfi\n\n# Git\ncase \"${GIT_ADDRESS}\" in\n    *.git) ;;\n    *) GIT_ADDRESS=\"${GIT_ADDRESS}.git\" ;;\nesac\n\nif [ -n \"${USERNAME}\" ] && [ -n \"${ACCESS_TOKEN}\" ]; then\n    GIT_ADDRESS=\"https://${USERNAME}:${ACCESS_TOKEN}@${GIT_ADDRESS#*://}\"\nfi\n\nif has_files; then\n    if [ -d .git ]; then\n        if [ \"$(strip_auth \"$(git config --get remote.origin.url)\")\" = \"$(strip_auth \"${GIT_ADDRESS}\")\" ]; then\n            echo \"Pulling latest files from git\"\n            # Picks up a changed Git Username/Access Token\n            git remote set-url origin \"${GIT_ADDRESS}\"\n            git pull --ff-only || echo \"git pull failed, keeping the current files.\"\n        else\n            echo \"This server is a clone of a different git repo, leaving it alone.\"\n        fi\n    else\n        echo \"This server already has files that aren't from git, leaving them alone.\"\n    fi\nelse\n    echo \"Cloning files from git\"\n    rm -rf /tmp/clone\n    if [ -n \"${BRANCH}\" ]; then\n        git clone --single-branch --branch \"${BRANCH}\" \"${GIT_ADDRESS}\" /tmp/clone || { echo \"git clone failed, check Git Repo Address, Git Branch and credentials\"; exit 1; }\n    else\n        git clone \"${GIT_ADDRESS}\" /tmp/clone || { echo \"git clone failed, check Git Repo Address and credentials\"; exit 1; }\n    fi\n    cp -a /tmp/clone/. /mnt/server/ && rm -rf /tmp/clone\nfi\n\nfinish \"Install complete.\"\n",
+            "container": "alpine:3.24",
+            "entrypoint": "ash"
+        }
+    },
+    "variables": [
+        {
+            "name": "Multi-Bot Mode",
+            "description": "Host several bots on this server, each in its own folder, with a web panel on the server's port to start, stop and watch them. Off runs one Python app.\n\nOnly an admin can change this.\n\n0 = false (default)\n1 = true",
+            "env_variable": "MULTI_BOT",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "Entry File",
+            "description": "The Python file to run (single app mode).",
+            "env_variable": "PY_FILE",
+            "default_value": "bot.py",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:128",
+            "field_type": "text"
+        },
+        {
+            "name": "Requirements File",
+            "description": "Installed on start when it changes (single app mode). In Multi-Bot Mode each bot uses the requirements.txt in its own folder.",
+            "env_variable": "REQUIREMENTS_FILE",
+            "default_value": "requirements.txt",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:128",
+            "field_type": "text"
+        },
+        {
+            "name": "Auto Install Dependencies",
+            "description": "Install the requirements file and extra packages on start. Restarts skip this when nothing changed.\n\n0 = false\n1 = true (default)",
+            "env_variable": "AUTO_INSTALL",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "Extra Packages",
+            "description": "Space separated pip packages to install on top of the requirements file, e.g. discord.py python-dotenv (single app mode).",
+            "env_variable": "PY_PACKAGES",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:512",
+            "field_type": "text"
+        },
+        {
+            "name": "Custom Startup Command",
+            "description": "Run this instead of the Entry File, inside the app's venv, e.g. gunicorn app:app -b 0.0.0.0:$SERVER_PORT (single app mode). Leave blank to run the Entry File.",
+            "env_variable": "CUSTOM_CMD",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:512",
+            "field_type": "text"
+        },
+        {
+            "name": "Bot Panel Password",
+            "description": "Password for the Multi-Bot web panel. Leave blank to have one generated; it's shown in the console on every start.",
+            "env_variable": "PANEL_PASSWORD",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:128",
+            "field_type": "text"
+        },
+        {
+            "name": "Bots Folder",
+            "description": "Folder (inside the server) that holds the bot folders in Multi-Bot Mode. Blank uses the server's main folder.",
+            "env_variable": "BOTS_DIR",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:128",
+            "field_type": "text"
+        },
+        {
+            "name": "Auto Restart Bots",
+            "description": "Restart a bot that crashes in Multi-Bot Mode, waiting longer after each crash (5 seconds up to 5 minutes).\n\n0 = false\n1 = true (default)",
+            "env_variable": "AUTO_RESTART",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "Git Repo Address",
+            "description": "Git repo to clone on install, e.g. https://github.com/you/your-bot",
+            "env_variable": "GIT_ADDRESS",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Git Branch",
+            "description": "Branch to clone. Blank uses the repo's default branch.",
+            "env_variable": "BRANCH",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Auto Update",
+            "description": "Pull the latest files from the Git repo on every start.\n\n0 = false (default)\n1 = true",
+            "env_variable": "AUTO_UPDATE",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "User Uploaded Files",
+            "description": "Skip the Git setup, you upload the files yourself.\n\n0 = false (default)\n1 = true",
+            "env_variable": "USER_UPLOAD",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "Git Username",
+            "description": "Username for a private Git repo.",
+            "env_variable": "USERNAME",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Git Access Token",
+            "description": "Access token for a private Git repo. Use a personal access token, not your password.",
+            "env_variable": "ACCESS_TOKEN",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Update Check",
+            "description": "Check GitHub on startup and say in the console when the egg or the Docker image has an update.\n\n0 = false\n1 = true (default)",
+            "env_variable": "UPDATE_CHECK",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        }
+    ]
+}
