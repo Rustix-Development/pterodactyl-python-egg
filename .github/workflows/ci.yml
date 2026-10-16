@@ -31,7 +31,7 @@ jobs:
           shellcheck docker/entrypoint.sh docker/rustix/start.sh
           python3 -m py_compile docker/rustix/manager.py docker/rustix/deps.py
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       # Build only, the images are published by build-images.yml
       - uses: docker/build-push-action@v6
