@@ -26,6 +26,7 @@ from pathlib import Path
 import psutil
 from dotenv import dotenv_values
 from flask import Flask, abort, jsonify, request, send_file, session
+from flask.sessions import SecureCookieSessionInterface
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from deps import ensure_venv  # noqa: E402
@@ -340,13 +341,21 @@ def panel_password():
     if not pw and (HOME / ".env").is_file():  # old panel.py kept it in the root .env
         pw = (dotenv_values(HOME / ".env").get("PANEL_PASSWORD") or "").strip()
     if pw:
-        return pw, "from the Panel Password variable"
+        return pw, False
     pw, _ = _secret("panel-password", lambda: secrets.token_urlsafe(12))
-    return pw, "generated; set the Panel Password variable to pick your own"
+    return pw, True
 
 
-PASSWORD, PASSWORD_SOURCE = panel_password()
+class SessionInterface(SecureCookieSessionInterface):
+    # Mark the cookie HTTPS-only whenever the panel is reached over HTTPS (waitress applies
+    # X-Forwarded-Proto from a reverse proxy, see serve() below)
+    def get_cookie_secure(self, app):
+        return request.is_secure
+
+
+PASSWORD, PASSWORD_GENERATED = panel_password()
 app = Flask(__name__)
+app.session_interface = SessionInterface()
 app.secret_key, _ = _secret("secret.key", lambda: secrets.token_hex(32))
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
@@ -391,7 +400,8 @@ def healthz():
 
 @app.post("/api/login")
 def login():
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+    # The connection's address, not X-Forwarded-For: a client can put anything in that header
+    ip = request.remote_addr or "?"
     now = time.time()
     recent = [t for t in _fails.get(ip, []) if now - t < 300]
     if len(recent) >= 10:
@@ -488,7 +498,7 @@ def console_loop():
         elif cmd == "rescan":
             rescan()
         elif cmd == "password":
-            say(f"panel password: {PASSWORD}")
+            say(f"panel password: {PASSWORD}" if PASSWORD_GENERATED else "panel password: set by the Bot Panel Password variable")
         elif cmd == "logs" and args:
             b = BOTS.get(args[0])
             n = int(args[1]) if len(args) > 1 and args[1].isdigit() else 30
@@ -529,13 +539,19 @@ def main():
             say(f"{b.id}: auto-start is off")
     threading.Thread(target=_rescan_loop, daemon=True).start()
     threading.Thread(target=console_loop, daemon=True).start()
-    say(f"panel password: {PASSWORD} ({PASSWORD_SOURCE})")
+    if PASSWORD_GENERATED:
+        say(f"panel password: {PASSWORD} (generated; set the Bot Panel Password variable to pick your own)")
+    else:
+        say("panel password: set by the Bot Panel Password variable")
     say(f"Launching web panel on port {PORT}")
 
     import logging
     from waitress import serve
     logging.getLogger("waitress").setLevel(logging.ERROR)
-    serve(app, host="0.0.0.0", port=PORT, threads=8, ident="rustix")
+    # Only X-Forwarded-Proto is trusted, and only for the cookie's Secure flag: a client
+    # faking it just gets a cookie its own plain-HTTP browser won't send back
+    serve(app, host="0.0.0.0", port=PORT, threads=8, ident="rustix",
+          trusted_proxy="*", trusted_proxy_headers={"x-forwarded-proto"}, clear_untrusted_proxy_headers=True)
 
 
 if __name__ == "__main__":
